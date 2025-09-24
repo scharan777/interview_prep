@@ -1,0 +1,156 @@
+-- -- Profiles
+-- CREATE TABLE public.profiles (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+--   full_name TEXT,
+--   role TEXT DEFAULT 'student',
+--   level TEXT DEFAULT 'beginner',
+--   course TEXT,
+--   specialization TEXT,
+--   avatar_url TEXT,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY profiles_select ON public.profiles
+--   FOR SELECT USING (auth.uid() = user_id);
+-- CREATE POLICY profiles_insert ON public.profiles
+--   FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- CREATE POLICY profiles_update ON public.profiles
+--   FOR UPDATE USING (auth.uid() = user_id);
+
+-- -- Interview Sessions
+-- CREATE TABLE public.interview_sessions (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+--   course TEXT NOT NULL,
+--   subject TEXT NOT NULL,
+--   total_questions INT DEFAULT 0,
+--   correct_answers INT DEFAULT 0,
+--   score DECIMAL(5,2),
+--   status TEXT DEFAULT 'in_progress',
+--   started_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   completed_at TIMESTAMP WITH TIME ZONE,
+--   time_taken INT,
+--   feedback TEXT,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.interview_sessions ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY sessions_select ON public.interview_sessions
+--   FOR SELECT USING (auth.uid() = user_id);
+-- CREATE POLICY sessions_insert ON public.interview_sessions
+--   FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- CREATE POLICY sessions_update ON public.interview_sessions
+--   FOR UPDATE USING (auth.uid() = user_id);
+
+-- -- Questions
+-- CREATE TABLE public.questions (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   course TEXT NOT NULL,
+--   subject TEXT NOT NULL,
+--   question TEXT NOT NULL,
+--   options JSONB NOT NULL,
+--   correct_answer TEXT NOT NULL,
+--   difficulty TEXT DEFAULT 'medium',
+--   explanation TEXT,
+--   tags TEXT[],
+--   is_active BOOLEAN DEFAULT true,
+--   created_by UUID REFERENCES auth.users(id),
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY questions_select ON public.questions
+--   FOR SELECT USING (is_active = true);
+-- CREATE POLICY questions_insert ON public.questions
+--   FOR INSERT TO authenticated WITH CHECK (auth.uid() = created_by);
+
+-- -- User Answers
+-- CREATE TABLE public.user_answers (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   session_id UUID NOT NULL REFERENCES public.interview_sessions(id) ON DELETE CASCADE,
+--   question_id UUID NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
+--   user_answer TEXT NOT NULL,
+--   is_correct BOOLEAN NOT NULL,
+--   time_taken INT,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.user_answers ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY answers_select ON public.user_answers
+--   FOR SELECT USING (
+--     EXISTS (SELECT 1 FROM public.interview_sessions s
+--             WHERE s.id = session_id AND s.user_id = auth.uid())
+--   );
+-- CREATE POLICY answers_insert ON public.user_answers
+--   FOR INSERT WITH CHECK (
+--     EXISTS (SELECT 1 FROM public.interview_sessions s
+--             WHERE s.id = session_id AND s.user_id = auth.uid())
+--   );
+
+-- -- Companies
+-- CREATE TABLE public.companies (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   name TEXT UNIQUE NOT NULL,
+--   description TEXT,
+--   recruitment_process TEXT,
+--   logo_url TEXT,
+--   website_url TEXT,
+--   sample_questions TEXT[],
+--   resources JSONB,
+--   difficulty_level TEXT DEFAULT 'medium',
+--   is_active BOOLEAN DEFAULT true,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY companies_select ON public.companies
+--   FOR SELECT USING (is_active = true);
+
+-- -- Chat Messages
+-- CREATE TABLE public.chat_messages (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+--   message TEXT NOT NULL,
+--   response TEXT,
+--   context TEXT,
+--   session_type TEXT DEFAULT 'general',
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
+-- ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY chats_select ON public.chat_messages
+--   FOR SELECT USING (auth.uid() = user_id);
+-- CREATE POLICY chats_insert ON public.chat_messages
+--   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- -- Auto-update updated_at
+-- CREATE OR REPLACE FUNCTION public.touch_updated_at()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--   NEW.updated_at = now();
+--   RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- CREATE TRIGGER touch_profiles BEFORE UPDATE ON public.profiles
+--   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+-- CREATE TRIGGER touch_sessions BEFORE UPDATE ON public.interview_sessions
+--   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+-- CREATE TRIGGER touch_questions BEFORE UPDATE ON public.questions
+--   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+-- CREATE TRIGGER touch_companies BEFORE UPDATE ON public.companies
+--   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+-- -- Auto-create profile when user signs up
+-- CREATE OR REPLACE FUNCTION public.create_profile_on_signup()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--   INSERT INTO public.profiles (user_id, full_name)
+--   VALUES (NEW.id, NEW.raw_user_meta_data ->> 'full_name');
+--   RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- CREATE TRIGGER create_profile
+-- AFTER INSERT ON auth.users
+-- FOR EACH ROW EXECUTE FUNCTION public.create_profile_on_signup();
